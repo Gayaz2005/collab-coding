@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Collab Coding</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/monaco/min/vs/editor/editor.main.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Collab Coding</h1>
+            <div class="room-controls">
+                <input type="text" id="roomName" placeholder="Room name" value="New Room">
+                <button class="primary" onclick="createRoom()">Create Room</button>
+            </div>
+        </header>
+
+        <div class="main-content" id="mainContent" style="display: none;">
+            <div class="room-header">
+                <h2>Room: <span id="currentRoomName"></span></h2>
+                <div class="room-actions">
+                    <button class="secondary" onclick="saveCode()">Save Code</button>
+                    <button onclick="copyRoomLink()">Copy Link</button>
+                    <button onclick="leaveRoom()">Leave</button>
+                </div>
+            </div>
+
+            <div class="editor-container">
+                <div id="editor"></div>
+            </div>
+
+            <div class="execution">
+                <button class="primary" onclick="runCode()">Run Code</button>
+                <pre id="output" class="output">Output will appear here...</pre>
+            </div>
+        </div>
+
+        <div class="rooms-list" id="roomsList">
+            <h3>Active Rooms</h3>
+            <div id="roomsContainer"></div>
+        </div>
+    </div>
+
+    <script src="/static/monaco/min/vs/loader.js"></script>
+    <script src="/static/script.js"></script>
+</body>
+</html>
