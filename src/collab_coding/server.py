@@ -1,17 +1,18 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import uvicorn
 
 from .storage import RoomStorage
 from .models import Room, RoomResponse
-
+from .websocket import ConnectionManager
+from .executor import CodeExecutor
 
 app = FastAPI(title="Collab Coding")
 app.mount("/static", StaticFiles(directory="src/collab_coding/static"), name="static")
-
+manager = ConnectionManager()
 storage = RoomStorage()
-
+executor = CodeExecutor()
 
 @app.get("/")
 async def root():
@@ -90,8 +91,39 @@ async def update_code(room_id: str, code: str):
     }
 
 
+@app.websocket("/ws/{room_id}")
+async def websocket_endpoint(websocket: WebSocket, room_id: str):
+    room = storage.get(room_id)
+    if not room:
+        await websocket.close(code=1000, reason="Room not found")
+        return
+    
+    await manager.connect(room_id, websocket)
+    await websocket.send_text(room.code)
+    
+    try:
+        while True:
+            code = await websocket.receive_text()
+            storage.update_code(room_id, code)
+            await manager.broadcast(room_id, code, websocket)
+    except WebSocketDisconnect:
+        manager.disconnect(room_id, websocket)
+
+
+@app.post("/rooms/{room_id}/run")
+async def run_room_code(room_id: str):
+    room = storage.get(room_id)
+    if not room:
+        raise HTTPException(404, "Room not found")
+    
+    result = await executor.execute_code(room.code)
+    return {"room_id": room_id, **result}
+
+
 if __name__ == "__main__":
     uvicorn.run(
         "src.collab_coding.server:app",
+        host="127.0.0.1",
+        port=8000,
         reload=True
     )

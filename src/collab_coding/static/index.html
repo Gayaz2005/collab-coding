@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -13,7 +13,7 @@
             <h1>Collab Coding</h1>
             <div class="room-controls">
                 <input type="text" id="roomName" placeholder="Room name" value="New Room">
-                <button class="primary" onclick="createRoom()">Create Room</button>
+                <button class="primary" onclick="createRoom()">Создать комнату</button>
             </div>
         </header>
 
@@ -21,9 +21,9 @@
             <div class="room-header">
                 <h2>Room: <span id="currentRoomName"></span></h2>
                 <div class="room-actions">
-                    <button class="secondary" onclick="saveCode()">Save Code</button>
-                    <button onclick="copyRoomLink()">Copy Link</button>
-                    <button onclick="leaveRoom()">Leave</button>
+                    <button class="secondary" onclick="saveCode()">Сохранить код</button>
+                    <button onclick="copyRoomLink()">Скопировать ссылку</button>
+                    <button onclick="leaveRoom()">Выйти</button>
                 </div>
             </div>
 
@@ -32,13 +32,13 @@
             </div>
 
             <div class="execution">
-                <button class="primary" onclick="runCode()">Run Code</button>
+                <button class="primary" onclick="runCode()">Запустить код</button>
                 <pre id="output" class="output">Output will appear here...</pre>
             </div>
         </div>
 
         <div class="rooms-list" id="roomsList">
-            <h3>Active Rooms</h3>
+            <h3>Активные комнаты</h3>
             <div id="roomsContainer"></div>
         </div>
     </div>

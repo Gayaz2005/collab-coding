@@ -2,6 +2,7 @@
 let currentRoom = null;
 let editor = null;
 let saveTimeout = null;
+let socket = null;
 
 // Инициализация при загрузке
 document.addEventListener('DOMContentLoaded', () => {
@@ -38,9 +39,12 @@ function initEditor() {
         });
         
         editor.onDidChangeModelContent(() => {
-            if (currentRoom) {
+            if (currentRoom && socket && socket.readyState === WebSocket.OPEN) {
                 clearTimeout(saveTimeout);
-                saveTimeout = setTimeout(saveCode, 30000);
+                saveTimeout = setTimeout(() => {
+                    const code = editor.getValue();
+                    socket.send(code); 
+                }, 1000);
             }
         });
     });
@@ -67,7 +71,7 @@ function displayRooms(rooms) {
     }
     
     container.innerHTML = rooms.map(room => `
-        <div class="room-item" onclick="joinRoom('${room.id}', '${room.name}')">
+        <div class="room-item" onclick=\"joinRoom('${room.id}', '${room.name}')\">
             <div class="room-info">
                 <div class="room-name">${room.name}</div>
                 <div class="room-meta">
@@ -118,13 +122,43 @@ async function joinRoom(roomId, roomName) {
             if (editor) {
                 editor.setValue(room.code);
             }
-            
+            connectWebSocket(roomId);
             history.pushState({}, '', `?room=${roomId}`);
             showNotification(`Вошел в комнату: ${room.name}`, 'success');
         }
     } catch (error) {
         showNotification('Ошибка входа в комнату', 'error');
     }
+}
+
+function connectWebSocket(roomId) {
+    // Закрываем старое соединение если есть
+    if (socket) {
+        socket.close();
+    }
+    
+    socket = new WebSocket(`ws://localhost:8000/ws/${roomId}`);
+    
+    socket.onopen = () => {
+        console.log('WebSocket подключен');
+    };
+    
+    socket.onmessage = (event) => {
+        // Получаем код от других пользователей
+        const code = event.data;
+        if (editor && code !== editor.getValue()) {
+            editor.setValue(code);
+        }
+    };
+    
+    socket.onerror = (error) => {
+        console.error('WebSocket ошибка:', error);
+        showNotification('Ошибка подключения', 'error');
+    };
+    
+    socket.onclose = () => {
+        console.log('WebSocket отключен');
+    };
 }
 
 // Выход из комнаты
@@ -145,15 +179,34 @@ function copyRoomLink() {
 
 // Выполнение кода
 async function runCode() {
-    if (!currentRoom || !editor) return;
+    if (!currentRoom || !editor) {
+        showNotification('Нет активной комнаты', 'error');
+        return
+    };
     
     const code = editor.getValue();
     const output = document.getElementById('output');
     output.textContent = 'Выполнение...';
     
-    setTimeout(() => {
-        output.textContent = 'Функция выполнения кода будет добавлена позже!\n\n' + code;
-    }, 1000);
+    try {
+        const response = await fetch(`/rooms/${currentRoom.id}/run`, {
+            method: 'POST',
+        });
+        
+        const result = await response.json();
+        
+        if (result.error) {
+            output.textContent = `Ошибка: ${result.error}`;
+        } else if (result.output) {
+            output.textContent = result.output;
+        } else {
+            output.textContent = 'Код выполнен (нет вывода)';
+        }
+    } catch (error) {
+        console.error('Ошибка выполнения:', error);
+        output.textContent = 'Ошибка выполнения';
+        showNotification('Ошибка выполнения кода', 'error');
+    }
 }
 
 // Сохранение кода
