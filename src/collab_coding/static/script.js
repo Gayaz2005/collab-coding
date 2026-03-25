@@ -65,26 +65,30 @@ async function loadRooms() {
 function displayRooms(rooms) {
     const container = document.getElementById('roomsContainer');
     
-    if (rooms.length === 0) {
+    if (!rooms || rooms.length === 0) {
         container.innerHTML = '<p class="no-rooms">Нет активных комнат</p>';
         return;
     }
     
-    container.innerHTML = rooms.map(room => `
-        <div class="room-item" onclick=\"joinRoom('${room.id}', '${room.name}')\">
-            <div class="room-info">
-                <div class="room-name">${room.name}</div>
-                <div class="room-meta">
-                    ID: ${room.id.slice(0, 8)}... | 
-                    Язык: ${room.language} |
-                    Создана: ${new Date(room.created_at).toLocaleString()}
+    container.innerHTML = rooms.map(room => {
+        const roomId = room.id || room.uuid;
+        if (!roomId) return '';
+        return `
+            <div class="room-item" onclick="joinRoom('${roomId}', '${room.name}')">
+                <div class="room-info">
+                    <div class="room-name">${escapeHtml(room.name) || 'Без имени'}</div>
+                    <div class="room-meta">
+                        ID: ${roomId.slice(0, 8)}... | 
+                        Язык: ${room.language || 'python'} |
+                        Создана: ${room.created_at ? new Date(room.created_at).toLocaleString() : 'неизвестно'}
+                    </div>
                 </div>
+                <button class="room-join-btn" onclick="event.stopPropagation(); joinRoom('${roomId}', '${room.name}')">
+                    Войти
+                </button>
             </div>
-            <button class="room-join-btn" onclick="event.stopPropagation(); joinRoom('${room.id}', '${room.name}')">
-                Войти
-            </button>
-        </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
 // Создание новой комнаты
@@ -92,59 +96,90 @@ async function createRoom() {
     const name = document.getElementById('roomName').value || 'Новая комната';
     
     try {
-        const response = await fetch(`/rooms?name=${encodeURIComponent(name)}`, {
-            method: 'POST'
+        const response = await fetch(`/rooms`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ name: name })
         });
         
         if (response.ok) {
             const room = await response.json();
             showNotification('Комната создана!', 'success');
             loadRooms();
-            joinRoom(room.id, room.name);
+            joinRoom(room.uuid, room.name);
+        } else {
+            const error = await response.json();
+            console.error('Ошибка создания:', error);
+            showNotification('Ошибка создания комнаты', 'error');
         }
     } catch (error) {
+        console.error('Ошибка запроса:', error);
         showNotification('Ошибка создания комнаты', 'error');
     }
 }
 
 // Вход в комнату
 async function joinRoom(roomId, roomName) {
+    if (!roomId) {
+        showNotification('Ошибка: ID комнаты не указан', 'error');
+        return;
+    }
+    
     try {
         const response = await fetch(`/rooms/${roomId}`);
         
         if (response.ok) {
             const room = await response.json();
             
-            currentRoom = room;
+            // Нормализуем объект: добавляем поле id для совместимости
+            currentRoom = {
+                ...room,
+                id: room.uuid  // 👈 добавляем id для обратной совместимости
+            };
+            
             document.getElementById('currentRoomName').textContent = room.name;
             document.getElementById('mainContent').style.display = 'block';
             
             if (editor) {
-                editor.setValue(room.code);
+                editor.setValue(room.code || '');
             }
             connectWebSocket(roomId);
             history.pushState({}, '', `?room=${roomId}`);
             showNotification(`Вошел в комнату: ${room.name}`, 'success');
+        } else {
+            const error = await response.json();
+            console.error('Ошибка входа:', error);
+            showNotification('Комната не найдена', 'error');
         }
     } catch (error) {
+        console.error('Ошибка запроса:', error);
         showNotification('Ошибка входа в комнату', 'error');
     }
 }
 
 function connectWebSocket(roomId) {
-    // Закрываем старое соединение если есть
+    if (!roomId) {
+        console.error('WebSocket: roomId не указан');
+        return;
+    }
+    
     if (socket) {
         socket.close();
     }
     
-    socket = new WebSocket(`ws://localhost:8000/ws/${roomId}`);
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/${roomId}`;
+    
+    console.log('Подключаюсь к WebSocket:', wsUrl);
+    socket = new WebSocket(wsUrl);
     
     socket.onopen = () => {
         console.log('WebSocket подключен');
     };
     
     socket.onmessage = (event) => {
-        // Получаем код от других пользователей
         const code = event.data;
         if (editor && code !== editor.getValue()) {
             editor.setValue(code);
@@ -163,16 +198,25 @@ function connectWebSocket(roomId) {
 
 // Выход из комнаты
 function leaveRoom() {
+    if (socket) {
+        socket.close();
+        socket = null;
+    }
     currentRoom = null;
     document.getElementById('mainContent').style.display = 'none';
     history.pushState({}, '', '/');
+    
+    if (editor) {
+        editor.setValue('');
+    }
 }
 
 // Копирование ссылки на комнату
 function copyRoomLink() {
     if (!currentRoom) return;
     
-    const url = `${window.location.origin}?room=${currentRoom.id}`;
+    const roomId = currentRoom.id || currentRoom.uuid;
+    const url = `${window.location.origin}?room=${roomId}`;
     navigator.clipboard.writeText(url);
     showNotification('Ссылка скопирована!', 'success');
 }
@@ -181,15 +225,16 @@ function copyRoomLink() {
 async function runCode() {
     if (!currentRoom || !editor) {
         showNotification('Нет активной комнаты', 'error');
-        return
-    };
+        return;
+    }
     
+    const roomId = currentRoom.id || currentRoom.uuid;
     const code = editor.getValue();
     const output = document.getElementById('output');
     output.textContent = 'Выполнение...';
     
     try {
-        const response = await fetch(`/rooms/${currentRoom.id}/run`, {
+        const response = await fetch(`/rooms/${roomId}/run`, {
             method: 'POST',
         });
         
@@ -217,13 +262,17 @@ async function saveCode() {
     }
     
     const code = editor.getValue();
+    const roomId = currentRoom.id || currentRoom.uuid;
     
-    // Показываем что сохраняем
     showNotification('Сохранение...', 'info');
     
     try {
-        const response = await fetch(`/rooms/${currentRoom.id}/code?code=${encodeURIComponent(code)}`, {
-            method: 'PUT'
+        const response = await fetch(`/rooms/${roomId}/code`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ code: code })
         });
         
         if (response.ok) {
@@ -238,6 +287,17 @@ async function saveCode() {
         console.error('Ошибка запроса:', error);
         showNotification('Ошибка сохранения кода', 'error');
     }
+}
+
+// Вспомогательная функция для экранирования HTML
+function escapeHtml(str) {
+    if (!str) return '';
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 // Уведомления
@@ -261,7 +321,7 @@ window.addEventListener('load', () => {
     if (roomId) {
         fetch(`/rooms/${roomId}`)
             .then(res => res.json())
-            .then(room => joinRoom(room.id, room.name))
+            .then(room => joinRoom(room.uuid, room.name))
             .catch(() => {});
     }
 });
